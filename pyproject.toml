@@ -1,0 +1,16 @@
+[project]
+name = "realtime-pipeline"
+version = "0.1.0"
+description = "Streaming clickstream pipeline: Redpanda (Kafka API) -> exactly-once-ish micro-batches into DuckDB -> SQL models."
+requires-python = ">=3.11"
+dependencies = ["confluent-kafka>=2.5", "duckdb>=1.1"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pipeline"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
