@@ -1,0 +1,24 @@
+services:
+  redpanda:
+    image: redpandadata/redpanda:v24.2.7
+    command: [redpanda, start, --mode, dev-container, --smp, "1",
+              --kafka-addr, "internal://0.0.0.0:9092,external://0.0.0.0:19092",
+              --advertise-kafka-addr, "internal://redpanda:9092,external://localhost:19092"]
+    ports: ["127.0.0.1:19092:19092"]
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health", "--exit-when-healthy"]
+      interval: 5s
+      retries: 20
+  producer:
+    build: .
+    command: [produce]
+    environment: {KAFKA_BROKER: "redpanda:9092"}
+    depends_on: {redpanda: {condition: service_healthy}}
+  consumer:
+    build: .
+    command: [consume]
+    environment: {KAFKA_BROKER: "redpanda:9092", DUCKDB_PATH: /data/warehouse.duckdb}
+    volumes: [warehouse:/data]
+    depends_on: {redpanda: {condition: service_healthy}}
+volumes:
+  warehouse:
