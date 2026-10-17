@@ -1,5 +1,6 @@
 """Clickstream event schema, validation and a fake generator."""
 import json
+import math
 import random
 import time
 import uuid
@@ -21,4 +22,7 @@ def parse(raw: bytes) -> dict | None:
         clean = {k: typ(e[k]) for k, typ in FIELDS.items()}
     except (ValueError, KeyError, TypeError):
         return None
-    return clean if clean["type"] in TYPES and clean["amount"] >= 0 else None
+    ok = (clean["type"] in TYPES and math.isfinite(clean["amount"]) and 0 <= clean["amount"] < 1e9
+          and math.isfinite(clean["ts"]) and 946_684_800 <= clean["ts"] < 4_102_444_800  # 2000..2100
+          and 0 < len(clean["event_id"]) <= 64 and 0 < len(clean["user_id"]) <= 64)
+    return clean if ok else None

@@ -14,18 +14,38 @@ class Sink:
             create table if not exists dead_letter(received_at timestamp default now(), payload varchar);
         """)
 
-    def write(self, events: list[dict], bad: list[bytes] = ()) -> int:
-        """Insert a batch in one transaction; duplicate event_ids (Kafka redelivery) are ignored."""
+    def _insert(self, events: list[dict], bad: list[bytes]):
         self.con.begin()
-        if events:
-            self.con.executemany(
-                "insert or ignore into raw_events values (?, ?, ?, to_timestamp(?), ?)",
-                [(e["event_id"], e["user_id"], e["type"], e["ts"], e["amount"]) for e in events])
-        if bad:
-            self.con.executemany("insert into dead_letter(payload) values (?)",
-                                 [(b.decode(errors="replace"),) for b in bad])
-        self.con.commit()
-        return len(events)
+        try:
+            if events:
+                self.con.executemany(
+                    "insert or ignore into raw_events values (?, ?, ?, to_timestamp(?), ?)",
+                    [(e["event_id"], e["user_id"], e["type"], e["ts"], e["amount"]) for e in events])
+            if bad:
+                self.con.executemany("insert into dead_letter(payload) values (?)",
+                                     [(b.decode(errors="replace"),) for b in bad])
+            self.con.commit()
+        except Exception:
+            self.con.rollback()
+            raise
+
+    def write(self, events: list[dict], bad: list[bytes] = ()) -> int:
+        """Insert a batch in one transaction; duplicate event_ids (Kafka redelivery) are ignored.
+        If the batch fails, retry row by row and dead-letter the rows that still fail, so one poison
+        message can't block offset commits forever."""
+        try:
+            self._insert(events, list(bad))
+            return len(events)
+        except Exception:
+            written = 0
+            for e in events:
+                try:
+                    self._insert([e], [])
+                    written += 1
+                except Exception:
+                    self._insert([], [__import__("json").dumps(e).encode()])
+            self._insert([], list(bad))
+            return written
 
     def build_models(self, folder: Path = MODELS) -> list[str]:
         """Run each models/NN_name.sql as `create or replace view name as ...`, in file order."""

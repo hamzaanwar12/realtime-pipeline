@@ -15,7 +15,10 @@ def test_generated_events_parse():
 
 def test_parse_rejects_bad_payloads():
     for raw in [b"not json", b"{}", json.dumps(ev(1, type_="hack")).encode(),
-                json.dumps(ev(1, amount=-5)).encode(), json.dumps({**ev(1), "ts": "x"}).encode()]:
+                json.dumps(ev(1, amount=-5)).encode(), json.dumps({**ev(1), "ts": "x"}).encode(),
+                b'{"event_id":"e","user_id":"u","type":"page_view","ts":NaN,"amount":0}',
+                b'{"event_id":"e","user_id":"u","type":"page_view","ts":1e300,"amount":0}',
+                json.dumps({**ev(1), "amount": float("inf")}).encode(), json.dumps({**ev(1), "event_id": ""}).encode()]:
         assert parse(raw) is None
 
 
@@ -36,3 +39,11 @@ def test_models():
     assert funnel == [("page_view", 2, None), ("add_to_cart", 1, 0.5), ("checkout", 1, 1.0), ("purchase", 1, 1.0)]
     assert s.query("select user_id, purchases, revenue from top_customers") == [("a", 2, 150.0)]
     assert s.query("select sum(events) from events_per_minute") == [(6,)]
+
+
+def test_poison_row_is_dead_lettered_not_blocking():
+    s = Sink()
+    poison = {**ev(9), "ts": float("nan")}  # bypasses parse() on purpose
+    assert s.write([ev(1), poison, ev(2)]) == 2
+    assert s.query("select count(*) from raw_events") == [(2,)]
+    assert s.query("select count(*) from dead_letter") == [(1,)]
